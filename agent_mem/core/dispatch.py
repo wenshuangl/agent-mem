@@ -235,9 +235,14 @@ class Dispatcher:
         return {'ok': True, 'agent': agent, 'success': success}
     
 
-    def auto_dispatch(self, result):
-        """自动派发到目标Agent（通过gateway API）"""
-        import requests
+    def auto_dispatch(self, result, gateway_url=''):
+        """自动派发到目标Agent（需要自定义gateway_url）
+        
+        Args:
+            result: dispatch.check() 的结果
+            gateway_url: 消息网关URL（如 http://127.0.0.1:18789）
+                         传空则不派发，只返回调度结果
+        """
         agent = result.get('agent')
         task = result.get('task', '')
         intent = result.get('intent', '未知')
@@ -245,23 +250,25 @@ class Dispatcher:
         if not agent or agent == 'main':
             return {'ok': False, 'reason': '无需派发'}
         
-        # 通过gateway API调用sessions_send
-        payload = {
-            'agentId': agent,
-            'message': f"## {intent}任务\n\n{task}\n\n---\n*来源：调度系统自动派发*",
-            'timeoutSeconds': 120
-        }
+        if not gateway_url:
+            return {'ok': True, 'agent': agent, 'dispatched': False,
+                    'message': '未配置gateway_url，仅返回调度结果'}
         
+        import requests
         try:
+            payload = {
+                'agentId': agent,
+                'message': f"## {intent}任务\n\n{task}\n\n---\n*来源：调度系统自动派发*",
+                'timeoutSeconds': 120
+            }
             r = requests.post(
-                'http://127.0.0.1:18789/api/sessions/send',
+                f'{gateway_url.rstrip("/")}/api/sessions/send',
                 json=payload,
                 timeout=10
             )
             if r.status_code == 200:
                 return {'ok': True, 'agent': agent, 'dispatched': True}
-            else:
-                return {'ok': False, 'error': f'HTTP {r.status_code}'}
+            return {'ok': False, 'error': f'HTTP {r.status_code}'}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 

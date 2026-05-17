@@ -1,0 +1,33 @@
+name: Python CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest
+    - name: Import check
+      run: |
+        python -c "from agent_mem.core.hot_cache import write_conversation, query_recent"
+        python -c "from agent_mem.core.dispatch_logger import log_dispatch"
+        python -c "from agent_mem.core.dispatch import Dispatcher"
+        python -c "from agent_mem.memory.memory_recall import MemoryRecall"
+        echo "✅ All imports successful"
