@@ -1,0 +1,17 @@
+# AgentMem 配置示例
+memory:
+  hot_cache_ttl_hours: 2
+  hot_cache_max_per_agent: 20
+  chroma_path: "~/.agent-mem/chroma"
+  
+dispatch:
+  history_max: 200
+  data_file: "~/.agent-mem/dispatch-data.json"
+  
+agents:
+  - id: "main"
+    description: "主调度Agent"
+  - id: "advertising-agent"
+    description: "广告投放"
+  - id: "tech-expert"
+    description: "技术支持"
