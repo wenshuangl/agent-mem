@@ -14,7 +14,7 @@ import json, sys, argparse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-CACHE_DIR = Path.home() / '.agent-mem/hot_cache'
+CACHE_DIR = Path.home() / '.openclaw/workspace/memory/hot_cache'
 MAX_PER_AGENT = 20
 HOT_TTL_HOURS = 2  # working tier对应2小时
 
@@ -95,6 +95,26 @@ def query_recent(agent_id: str, channel: str = "", limit: int = 5):
             break
     
     return result
+
+
+def get_status():
+    """获取HOT缓存状态统计"""
+    _ensure_dir()
+    files = list(CACHE_DIR.glob('*.json'))
+    total_entries = 0
+    agents = {}
+    for f in files:
+        try:
+            entries = json.load(open(f))
+            total_entries += len(entries)
+            agents[f.stem] = len(entries)
+        except:
+            pass
+    return {
+        'agents': len(files),
+        'total_entries': total_entries,
+        'per_agent': agents
+    }
 
 
 def clear_agent(agent_id: str):
