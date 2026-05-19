@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-知识图谱 V2 - 因果链 + 时序推理 + 事件聚类
+知识图谱 - 因果链 + 时序推理 + 事件聚类
 升级: 自动检测因果链 + 按时间线串联 + 重要性聚类
 """
 import json, re, hashlib
@@ -11,12 +11,25 @@ from collections import defaultdict
 
 # 因果链关键词
 CAUSAL_PATTERNS = [
-    (r'(因为|由于).+?(所以|导致|因此|于是)', 'cause_effect'),
-    (r'(决定|选择|采用).+?(结果|成功|失败|效果)', 'decision_result'),
-    (r'(为了|为了达到|为的是).+?(做了|执行|采用|修改)', 'goal_action'),
-    (r'(修复|解决|处理).+?(问题|bug|故障|异常)', 'fix_problem'),
-    (r'(升级|更新|优化).+?(完成|上线|发布)', 'upgrade_complete'),
-    (r'(问题|失败|报错|错误).+?(修复|解决|恢复)', 'problem_solution'),
+    # 原有因果句式
+    (r"(因为|由于).+?(所以|导致|因此|于是)", "cause_effect"),
+    (r"(决定|选择|采用).+?(结果|成功|失败|效果)", "decision_result"),
+    (r"(为了|为了达到|为的是).+?(做了|执行|采用|修改)", "goal_action"),
+    (r"(修复|解决|处理|优化).+?(问题|bug|故障|异常|错误)", "fix_problem"),
+    (r"(升级|更新|优化|新增).+?(完成|上线|发布|部署)", "upgrade_complete"),
+    (r"(问题|失败|报错|错误|翻车).+?(修复|解决|恢复|搞定)", "problem_solution"),
+    # 新增：行动-结果模式
+    (r"(试了|测试|尝试).+?(结果|效果|发现)", "trial_result"),
+    (r"(建议|推荐|方案).+?(采纳|用了|选了)", "advice_action"),
+    (r"(折腾|研究|查).+?(终于|总算|最后)", "effort_result"),
+    (r"(发现|注意到).+?(原来|原因是|因为)", "discovery_cause"),
+    (r"(对比|比较|A/B).+?(明显|更好|更差)", "comparison_result"),
+    # 新增：时间序列模式
+    (r"(之前).+?(现在|这次不同)", "before_after"),
+    (r"(本来|原本).+?(后来|结果|最终)", "change_outcome"),
+    # 新增：项目管理模式
+    (r"(完成了|交付了|搞定了|实现了)", "task_complete"),
+    (r"(卡住|阻塞|难住).+?(解决了|绕过了|搞定了)", "blocker_solution"),
 ]
 
 # 时序链阈值（小时）
@@ -79,13 +92,13 @@ class KnowledgeGraph:
                 # 创建/更新cause和effect节点
                 if cause_id not in self.data['nodes']:
                     self.data['nodes'][cause_id] = {
-                        'type': 'cause' if chain_type in ['cause_effect', 'problem_solution'] else 'decision',
+                        'type': 'cause' if chain_type in ['cause_effect', 'problem_solution', 'discovery_cause', 'blocker_solution'] else 'action',
                         'text': cause_part.strip()[:150], 'date': date,
                         'importance': 6, 'category': 'auto', 'first_seen': date, 'last_seen': date
                     }
                 if effect_id not in self.data['nodes']:
                     self.data['nodes'][effect_id] = {
-                        'type': 'effect' if chain_type in ['cause_effect'] else 'result',
+                        'type': 'effect' if chain_type in ['cause_effect', 'problem_solution', 'trial_result', 'comparison_result'] else 'result',
                         'text': effect_part.strip()[:150], 'date': date,
                         'importance': 7, 'category': 'auto', 'first_seen': date, 'last_seen': date
                     }
@@ -182,10 +195,23 @@ class KnowledgeGraph:
             'by_type': defaultdict(int, {n.get('type'): 1 for n in self.data['nodes'].values()}),
         }
 
+    def retro_scan(self) -> Dict:
+        """用当前因果链模式重新扫描所有已有节点"""
+        count = 0
+        for nid, node in list(self.data["nodes"].items()):
+            text = node.get("text", "")
+            date = node.get("date", "")
+            if text and date:
+                self._detect_causal_chain(text, date, nid)
+                count += 1
+        self._save()
+        return {"scanned": count, "new_chains": len(self.data["chains"])}
+
+
 if __name__ == '__main__':
-    kg = KnowledgeGraph(Path.home() / '.agent-mem/memory')
+    kg = KnowledgeGraph(Path.home() / '.openclaw/workspace/memory')
     stats = kg.get_stats()
-    print(f"📊 知识图谱 V2 统计:")
+    print(f"📊 知识图谱 统计:")
     print(f"   节点: {stats['nodes']}, 边: {stats['edges']}, 链: {stats['chains']}")
     print(f"   高优先级: {stats['high_importance']}")
     kg.build_clusters()

@@ -74,14 +74,30 @@ class MemoryTimeline:
         return key
     
     def _extract_topic(self, text: str) -> str:
-        """提取主题词"""
-        # 去掉日期前缀
-        text = text.replace('[2026-05-01]', '').replace('[2026-04-30]', '').strip()
+        """提取主题词 — 智能关键词提取"""
+        import re
+        # 1. 去掉常见前缀
+        text = re.sub(r'^\[\d{4}-\d{2}-\d{2}\]', '', text).strip()
+        # 2. 去掉标记符号
+        text = text.lstrip('- *✅❌⚠️🔴🟡🟢📌🔧📊🎯📝💡').strip()
         
-        # 提取前50字符作为主题标识
-        topic = text[:50].strip('- *')
-        return topic
-    
+        # 3. 提取关键主题词
+        # 优先匹配：项目名/模块名/系统名/关键词
+        key_patterns = [
+            r'(记忆系统|记忆引擎|知识图谱|调度系统|Agent|飞书|广告|投放|脚本|API|模型|备份|监控|cron|GitHub|项目|升级|修复|优化|配置|部署|安装|测试|发布)'
+        ]
+        for p in key_patterns:
+            m = re.search(p, text, re.IGNORECASE)
+            if m:
+                keyword = m.group(0)
+                # 取关键词前后文
+                start = max(0, m.start() - 15)
+                end = min(len(text), m.end() + 15)
+                return text[start:end].strip()[:60]
+        
+        # 4. 无关键词匹配时取首句
+        first_sentence = text.split('。')[0].split('，')[0][:40]
+        return first_sentence.strip() or text[:40]
     def find_last_occurrence(self, keyword: str) -> Optional[Dict]:
         """查找某个主题最后出现的时间"""
         for topic, entries in self.data['topics'].items():
@@ -140,6 +156,6 @@ class MemoryTimeline:
 if __name__ == '__main__':
     from pathlib import Path
     home = Path.home()
-    timeline = MemoryTimeline(home / '.agent-mem/memory')
+    timeline = MemoryTimeline(home / '.openclaw/workspace/memory')
     stats = timeline.stats()
     print(f"📊 时序记忆统计: {stats}")

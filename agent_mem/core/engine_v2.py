@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-记忆引擎 V3 - 分层记忆 + 因果图谱
+记忆引擎（记忆系统3.0.0核心）
 新增: 工作记忆/短期/长期/核心 四级分层 + 自动因果链检测
 """
 import json, sys, argparse
@@ -11,10 +11,10 @@ from typing import Dict, List
 script_dir = Path(__file__).parent
 sys.path.insert(0, str(script_dir))
 from enhanced_extractor import EnhancedFactExtractor
-from config import CATEGORIES
+from config import CATEGORIES, SYSTEM_VERSION, SYSTEM_NAME, SYSTEM_RELEASE_DATE, SYSTEM_DESCRIPTION, SYSTEM_COMPONENTS, MODULE_VERSIONS, get_module_version
 # HOT层: 实时会话缓存 + 调度日志
 import sys; sys.path.insert(0, str(Path(__file__).parent.parent))
-from agent_mem.core.hot_cache import write_conversation, query_recent
+from hot_cache import write_conversation, query_recent
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # 分层定义
@@ -39,21 +39,22 @@ def get_tier(date_str: str, importance: int = 5) -> str:
         return 'archived'
     except: return 'short_term'
 
-class MemoryEngineV3:
+class MemoryEngine:
     def __init__(self):
         self.home = Path.home()
-        self.memory_dir = self.home / '.agent-mem/memory'
-        self.state_file = self.memory_dir / '.memory-engine-state-v3.json'
+        self.memory_dir = self.home / '.openclaw/workspace/memory'
+        self.state_file = self.memory_dir / '.memory-engine-state.json'
         self.extractor = EnhancedFactExtractor()
         self.state = self._load_state()
         self._init_modules()
 
     def _load_state(self) -> Dict:
+        print(f"  📌 {SYSTEM_NAME} v{SYSTEM_VERSION} (released {SYSTEM_RELEASE_DATE})")
         if self.state_file.exists():
             try: return json.load(open(self.state_file))
             except: pass
         return {
-            'last_run': None, 'version': 'v3',
+            'last_run': None, 'version': SYSTEM_VERSION,
             'modules': {}, 'stats': {'total_facts':0, 'important_facts':0, 'by_category':{}},
             'tier_stats': {'working':0, 'short_term':0, 'long_term':0, 'core':0, 'archived':0}
         }
@@ -82,7 +83,7 @@ class MemoryEngineV3:
     def process_daily(self):
         """每日处理 - 带分层记忆管理"""
         now = datetime.now()
-        print(f"\n🚀 记忆引擎 V3 - {now.strftime('%Y-%m-%d %H:%M')}")
+        print(f"\n🚀 记忆引擎 3.0.0 - {now.strftime('%Y-%m-%d %H:%M')}")
         print("=" * 40)
 
         # 1. 从日期文件提取事实
@@ -116,30 +117,85 @@ class MemoryEngineV3:
                     category=f.get('category', 'general')
                 )
             self.knowledge_graph.build_clusters()
+            self.knowledge_graph._save()
             gs = self.knowledge_graph.get_stats()
             print(f"   节点: {gs['nodes']}, 因果链: {gs['chains']}, 高优: {gs['high_importance']}")
+
+        # 3b. 时序索引
+        if self.state.get('timeline_loaded'):
+            print("📅 更新时序索引...")
+            for f in facts:
+                self.timeline.add_entry(
+                    text=f.get("text", "") or str(f.get("content", "")),
+                    date=f.get("date", now.strftime("%Y-%m-%d")),
+                    source_file=f.get("source", ""),
+                    category=f.get("category", "general")
+                )
+            ts = self.timeline.stats()
+            print(f"   时序条目: {ts.get('total_entries')}, 主题: {ts.get('total_topics')}")
+
 
         # 4. 矛盾检测
         if self.state.get('contradiction_loaded'):
             print("\n✅ 检测矛盾中...")
-            self.contradiction.check_fact("", "") # placeholder
-
+            for fact in facts[:30]:  # 检查最近30条
+                self.contradiction.check_fact(
+                    text=fact.get("text", "") or str(fact.get("content", "")),
+                    date=fact.get("date", now.strftime("%Y-%m-%d")),
+                    category=fact.get("category", "general")
+                )
         # 5. 实体链接
         if self.state.get('entity_linker_loaded'):
-            print("🔗 更新实体链接...")
-            self.entity_linker._save()
+            print("🔗 提取实体并链接...")
+            for f in facts[:50]:  # 最近50条
+                text = f.get("text", "") or str(f.get("content", ""))
+                date = f.get("date", now.strftime("%Y-%m-%d"))
+                entities = self.entity_linker.extract_entities(text, date)
+                if entities:
+                    self.entity_linker.link_entities(text, date, f.get("importance", 5))
+            es = self.entity_linker.get_stats()
+            print(f"   实体: {es.get('total_entities', 0)}个, 链接: {es.get('total_links', 0)}条")
 
         # 6. 主动召回
         if self.state.get('active_recall_loaded'):
             print("🔔 主动召回检查...")
-            try: self.active_recall.check_for_recall()
-            except: pass
+            for f in facts[:5]:
+                topic = (f.get("text", "") or str(f.get("content", "")))[:50]
+                if f.get("importance", 5) >= 7:
+                    ctx = self.active_recall.check_before_decision(topic)
+                    if ctx:
+                        print(f"    🔔 相关历史: {ctx[:100]}...")
+
+
+        # 7. 反馈检测（检查用户是否对记忆做了修正）
+        if self.state.get("memory_feedback_loaded"):
+            for f in facts[:20]:
+                text = f.get("text", "") or str(f.get("content", ""))
+                fb = self.memory_feedback.detect_feedback(text)
+                if fb:
+                    print(f"    💬 检测到反馈: {fb.get("type", "unknown")}")
+
+
+        # 8. 多Agent共享（重要记忆分发给相关Agent）
+        if self.state.get("multi_agent_share_loaded"):
+            important_facts = [f for f in facts if f.get("importance", 5) >= 7]
+            if important_facts:
+                for f in important_facts[:10]:
+                    cat = f.get("category", "general")
+                    text = f.get("text", "") or str(f.get("content", ""))
+                    if self.multi_agent_share.can_share(cat, text):
+                        print(f"    🤝 分发 {cat} 级记忆")
 
         # 🆕 子Agent记忆分发
         # dedup 由engine_v2自身的时间分级处理
         sync_count = self.sync_hot_cache()
         if sync_count:
-            print(f'  📤 已同步 {sync_count} 个Agent工作记忆')
+            print(f"  📤 已同步 {sync_count} 个Agent工作记忆")
+
+        # 9. 日常遗忘检查（低价值记忆标记）
+        if self.state.get("forgetting_loaded"):
+            for f in facts:
+                self.forgetting.score_fact(f)
         self.state['last_run'] = now.isoformat()
         self._save_state()
         print(f"\n✅ 处理完成: {sum(len(v) for v in tiered.values())} 条 (总条数: {self.state['stats']['total_facts']})")
@@ -174,7 +230,7 @@ class MemoryEngineV3:
 
     def get_status(self) -> Dict:
         return {
-            'version': 'v3',
+            'version': SYSTEM_VERSION,
             'last_run': self.state.get('last_run'),
             'total_facts': self.state['stats']['total_facts'],
             'important_facts': self.state['stats']['important_facts'],
@@ -283,7 +339,7 @@ class MemoryEngineV3:
     def sync_hot_cache(self):
         """🔥 重要事实写入各Agent HOT缓存 + 调度日志同步到引擎"""
         try:
-            from agent_mem.core.dispatch_logger import sync_to_engine
+            from dispatch_logger import sync_to_engine
             facts = self.state.get('last_facts', [])
             agents_list = self._get_active_agents()
             count = 0
@@ -319,7 +375,7 @@ class MemoryEngineV3:
     def _get_active_agents(self):
         """获取活跃Agent列表"""
         try:
-            dispatch_file = Path.home() / '.agent-mem/dispatch-data.json'
+            dispatch_file = Path.home() / '.openclaw/workspace/.dispatch-data.json'
             if dispatch_file.exists():
                 import json
                 data = json.load(open(dispatch_file))
@@ -330,12 +386,26 @@ class MemoryEngineV3:
                 'work-assistant', 'prompt-optimizer', 'prompt-architect']
     
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='记忆引擎 V3')
+    parser = argparse.ArgumentParser(description=f'{SYSTEM_NAME} v{SYSTEM_VERSION}')
     parser.add_argument('--mode', choices=['daily', 'once', 'status'], default='once')
+    parser.add_argument('--version', action='store_true', help='显示版本号')
     parser.add_argument('--file', help='处理特定文件')
     args = parser.parse_args()
+    if args.version:
+        print(f"🧠 {SYSTEM_NAME} v{SYSTEM_VERSION}")
+        print(f"   发布日期: {SYSTEM_RELEASE_DATE}")
+        print(f"   描述: {SYSTEM_DESCRIPTION}")
+        print(f"")
+        print(f"📦 模块子版本 ({len(SYSTEM_COMPONENTS)}个):")
+        for c in SYSTEM_COMPONENTS:
+            mod_name = c.split()[0].replace("(","")
+            mod_ver = get_module_version(mod_name)
+            print(f"   {c:40s} v{mod_ver}")
+        sys.exit(0)
 
-    engine = MemoryEngineV3()
+
+
+    engine = MemoryEngine()
 
     if args.mode == 'status':
         s = engine.get_status()

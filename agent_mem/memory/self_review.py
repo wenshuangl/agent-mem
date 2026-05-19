@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-主动复盘模块 V2 - 带规律库和验证闭环
+主动复盘模块 - 带规律库和验证闭环
 目标：从每天的复盘中提炼规律，并追踪"经验是否有效"
 """
 
@@ -76,17 +76,25 @@ class SelfReview:
         """从文本中提取可复用的规律"""
         # 匹配"应该/要/用X方法"这类指导性语句
         patterns_to_extract = [
-            r'(应该|要|推荐|最好)(.*?)(，|$)',
-            r'(用|采用|选择)(.*?)(方法|方案|策略)',
-            r'(每次|遇到.*时)(.*?)(就|要)(.*)',
-            r'(记住|切记|注意)(.*?)(，|$)',
+            r"(应该|要|推荐|最好)(.*?)(，|$|.)",
+            r"(用|采用|选择)(.*?)(方法|方案|策略)",
+            r"(每次|遇到.*时)(.*?)(就|要)(.*)",
+            r"(记住|切记|注意)(.*?)(，|$|.)",
+            r"(新建|创建|新增)(.*?)(脚本|模块|文件|功能|项目)",
+            r"(更新|升级|优化)(.*?)(版本|配置|脚本|方案)",
+            r"(修复|解决|处理)(.*?)(问题|bug|故障|异常|错误)",
+            r"(发现|检查|确认)(.*?)(原因|问题|情况|状态)",
+            r"(从.*降到|减少|提升|提高)(.*?)(倍|%|合理范围)",
+            r"(排除|过滤|忽略|跳过)(.*?)(大文件|缓存|噪音)",
+            r"(不要|避免|慎用|小心)(.*?)(，|$|.)",
+            r"(容易|经常|总是)(.*?)(出问题|出错|失败)",
         ]
         
         for pattern in patterns_to_extract:
             match = re.search(pattern, text)
             if match:
                 rule = match.group(0)
-                if len(rule) > 10 and len(rule) < 150:
+                if len(rule) >= 5 and len(rule) < 200:
                     return {
                         'rule': rule,
                         'context': text[:100],
@@ -160,6 +168,24 @@ class SelfReview:
                         new_patterns.append(pattern)
         
         # 去重
+
+        # 全行扫描：任何行都可能包含规律
+        for line in lines:
+            line = line.strip()
+            if len(line) < 5:
+                continue
+            pattern = self._extract_pattern_from_text(line, date)
+            if pattern:
+                is_new = True
+                for existing in self.patterns["patterns"]:
+                    if existing["rule"] == pattern["rule"]:
+                        is_new = False
+                        break
+                if is_new:
+                    self.patterns["patterns"].append(pattern)
+                    new_patterns.append(pattern)
+
+
         learnings = learnings[:10]
         mistakes = list(dict.fromkeys(mistakes))[:10]
         improvements = improvements[:5]
@@ -248,7 +274,7 @@ class SelfReview:
         return self.validations.get('pending', [])
     
     def get_daily_review_text(self, date: str = None) -> str:
-        """生成复盘文本"""
+        """生成适合发给老大的复盘文本"""
         review = self.generate_review(date)
         
         score_emoji = "🟢" if review['score'] >= 7 else "🟡" if review['score'] >= 5 else "🔴"
@@ -342,7 +368,7 @@ class SelfReview:
 
 if __name__ == '__main__':
     home = Path.home()
-    review = SelfReview(home / '.agent-mem/memory')
+    review = SelfReview(home / '.openclaw/workspace/memory')
     text = review.get_daily_review_text()
     print(text)
     

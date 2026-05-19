@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="agent-mem",
-    version="0.1.0",
+    version="0.2.0",
     description="Multi-Agent Memory + Dispatch System",
     author="AgentMem Contributors",
     packages=find_packages(),
